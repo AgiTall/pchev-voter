@@ -23,15 +23,17 @@ export class VoteStore {
   }
 
   async importMissing(filePath) {
-    let parsed;
-
     try {
       const raw = await readFile(filePath, 'utf8');
-      parsed = JSON.parse(raw);
+      return this.importMissingContent(raw);
     } catch (error) {
       if (error.code === 'ENOENT') return 0;
       throw error;
     }
+  }
+
+  async importMissingContent(raw, { guildId } = {}) {
+    const parsed = JSON.parse(raw);
 
     if (!Array.isArray(parsed.votes)) {
       throw new TypeError('Файл импорта должен содержать массив votes.');
@@ -39,7 +41,13 @@ export class VoteStore {
 
     let imported = 0;
     for (const vote of parsed.votes) {
-      if (!vote?.id || this.votes.has(vote.id)) continue;
+      if (
+        !vote?.id ||
+        this.votes.has(vote.id) ||
+        (guildId && vote.guildId !== guildId)
+      ) {
+        continue;
+      }
 
       vote.ballots ??= {};
       this.votes.set(vote.id, vote);

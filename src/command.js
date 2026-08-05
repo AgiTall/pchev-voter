@@ -1,4 +1,4 @@
-import { SlashCommandBuilder } from 'discord.js';
+import { PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 
 function localizedStringOption({ name, ruName, description, ruDescription, maxLength }) {
   return (option) =>
@@ -113,4 +113,23 @@ for (let index = 1; index <= 5; index += 1) {
   );
 }
 
-export const commands = [setVoteCommand.toJSON(), setMultiVoteCommand.toJSON()];
+export const restoreVotesCommand = new SlashCommandBuilder()
+  .setName('restore-votes')
+  .setDescription('Restore votes from votes.json')
+  .setDescriptionLocalization('ru', 'Восстановить голосования из votes.json')
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  .setDMPermission(false)
+  .addAttachmentOption((option) =>
+    option
+      .setName('file')
+      .setNameLocalization('ru', 'файл')
+      .setDescription('The local data/votes.json file')
+      .setDescriptionLocalization('ru', 'Локальный файл data/votes.json')
+      .setRequired(true)
+  );
+
+export const commands = [
+  setVoteCommand.toJSON(),
+  setMultiVoteCommand.toJSON(),
+  restoreVotesCommand.toJSON()
+];

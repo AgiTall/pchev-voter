@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import { startHealthServer, stopHealthServer } from '../src/health-server.js';
 
 test('отвечает Render на корневом маршруте и healthcheck', async () => {
-  const server = await startHealthServer({ port: 0, getDiscordStatus: () => true });
+  const server = await startHealthServer({
+    port: 0,
+    getStatus: () => ({ discordReady: true, storedVotes: 7, activeVotes: 1 })
+  });
   const { port } = server.address();
 
   try {
@@ -12,7 +15,9 @@ test('отвечает Render на корневом маршруте и healthch
     assert.deepEqual(await rootResponse.json(), {
       ok: true,
       service: 'pchev-voter',
-      discordReady: true
+      discordReady: true,
+      storedVotes: 7,
+      activeVotes: 1
     });
 
     const healthResponse = await fetch(`http://127.0.0.1:${port}/healthz`);

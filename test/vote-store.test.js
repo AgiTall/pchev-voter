@@ -55,6 +55,14 @@ test('импортирует отсутствующие голосования �
       ballots: { another: 'choice5' }
     });
     assert.equal(await store.importMissing(seedPath), 0);
+
+    const anotherGuild = JSON.stringify({
+      votes: [{ id: 'wrong-guild', guildId: 'guild-2', ballots: {} }]
+    });
+    assert.equal(
+      await store.importMissingContent(anotherGuild, { guildId: 'guild-1' }),
+      0
+    );
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

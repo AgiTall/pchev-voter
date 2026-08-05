@@ -51,7 +51,14 @@ const client = new Client({
 });
 const healthServer = await startHealthServer({
   port: Number(process.env.PORT ?? 10_000),
-  getDiscordStatus: () => client.isReady()
+  getStatus: () => {
+    const votes = [...store.values()];
+    return {
+      discordReady: client.isReady(),
+      storedVotes: votes.length,
+      activeVotes: votes.filter((vote) => vote.status === 'active').length
+    };
+  }
 });
 console.log(`HTTP-проверка запущена на порту ${process.env.PORT ?? 10_000}.`);
 const renderer = new ParliamentRenderer(
@@ -231,6 +238,45 @@ async function handleSetMultiVote(interaction) {
   }
 }
 
+async function handleRestoreVotes(interaction) {
+  if (
+    !interaction.inGuild() ||
+    !interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)
+  ) {
+    await respondWithError(interaction, 'Восстанавливать голосования может только администратор.');
+    return;
+  }
+
+  const attachment = interaction.options.getAttachment('file', true);
+  if (attachment.size > 1_000_000) {
+    await respondWithError(interaction, 'Файл слишком большой. Максимальный размер — 1 МБ.');
+    return;
+  }
+
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  try {
+    const response = await fetch(attachment.url);
+    if (!response.ok) throw new Error(`Discord вернул HTTP ${response.status}`);
+
+    const imported = await store.importMissingContent(await response.text(), {
+      guildId: interaction.guildId
+    });
+    await voteService.restore();
+
+    await interaction.editReply(
+      imported > 0
+        ? `Восстановлено голосований: **${imported}**. Старые кнопки снова активны.`
+        : 'Новых записей в файле не найдено. Проверьте, что это нужный `data/votes.json`.'
+    );
+  } catch (error) {
+    console.error('Не удалось восстановить голосования:', error);
+    await interaction.editReply(
+      'Не удалось прочитать файл. Прикрепите исходный `data/votes.json` без изменений.'
+    );
+  }
+}
+
 async function handleVoteButton(interaction) {
   const match = interaction.customId.match(BUTTON_PATTERN);
   if (!match) return;
@@ -294,6 +340,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     if (interaction.isChatInputCommand() && interaction.commandName === 'set-multi-vote') {
       await handleSetMultiVote(interaction);
+      return;
+    }
+
+    if (interaction.isChatInputCommand() && interaction.commandName === 'restore-votes') {
+      await handleRestoreVotes(interaction);
       return;
     }
 

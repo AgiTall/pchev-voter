@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 
-export async function startHealthServer({ port, getDiscordStatus = () => false }) {
+export async function startHealthServer({ port, getStatus = () => ({}) }) {
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? '/', 'http://localhost');
 
@@ -19,7 +19,7 @@ export async function startHealthServer({ port, getDiscordStatus = () => false }
     const body = JSON.stringify({
       ok: true,
       service: 'pchev-voter',
-      discordReady: getDiscordStatus()
+      ...getStatus()
     });
     response.writeHead(200, {
       'Content-Type': 'application/json; charset=utf-8',
