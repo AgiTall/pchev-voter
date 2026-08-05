@@ -13,6 +13,7 @@ import {
 import { commands } from './command.js';
 import { formatDuration, parseDuration } from './duration.js';
 import { loadEmojiConfig } from './emoji-config.js';
+import { startHealthServer, stopHealthServer } from './health-server.js';
 import { collectHumanSeats } from './member-seats.js';
 import { ParliamentRenderer } from './parliament-renderer.js';
 import { VoteService } from './vote-service.js';
@@ -39,17 +40,20 @@ const dataDirectory = process.env.VOTE_DATA_DIR
   : path.resolve(currentDirectory, '../data');
 const store = new VoteStore(path.join(dataDirectory, 'votes.json'));
 await store.load();
-const seedFilePath = process.env.VOTE_SEED_FILE;
-if (seedFilePath) {
-  const imported = await store.importMissing(path.resolve(seedFilePath));
-  if (imported > 0) {
-    console.log(`Импортировано голосований из резервного файла: ${imported}.`);
-  }
+const seedFilePath = process.env.VOTE_SEED_FILE ?? '/etc/secrets/votes-seed.json';
+const imported = await store.importMissing(path.resolve(seedFilePath));
+if (imported > 0) {
+  console.log(`Импортировано голосований из резервного файла: ${imported}.`);
 }
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
 });
+const healthServer = await startHealthServer({
+  port: Number(process.env.PORT ?? 10_000),
+  getDiscordStatus: () => client.isReady()
+});
+console.log(`HTTP-проверка запущена на порту ${process.env.PORT ?? 10_000}.`);
 const renderer = new ParliamentRenderer(
   path.resolve(currentDirectory, '../assets/parliament-background.png')
 );
@@ -320,6 +324,7 @@ async function shutdown(signal) {
     await voteService.shutdown();
     await store.flush();
     client.destroy();
+    await stopHealthServer(healthServer);
     console.log('Бот корректно остановлен.');
     process.exit(0);
   } catch (error) {
