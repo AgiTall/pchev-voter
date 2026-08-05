@@ -1,0 +1,21 @@
+{
+  "name": "pchev-voter",
+  "version": "1.0.0",
+  "description": "Discord-бот для голосований в стиле ООН",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "preview": "node scripts/render-preview.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20.12.0"
+  },
+  "dependencies": {
+    "discord.js": "^14.27.0",
+    "dotenv": "^17.4.2",
+    "sharp": "^0.35.3"
+  }
+}

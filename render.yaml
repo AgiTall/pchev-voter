@@ -1,0 +1,23 @@
+services:
+  - type: worker
+    name: pchev-voter
+    runtime: node
+    plan: starter
+    region: frankfurt
+    buildCommand: npm ci
+    startCommand: npm start
+    autoDeployTrigger: commit
+    maxShutdownDelaySeconds: 30
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: CLIENT_ID
+        sync: false
+      - key: VOTE_DATA_DIR
+        value: /opt/render/project/src/data
+    disk:
+      name: vote-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1
