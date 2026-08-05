@@ -22,6 +22,34 @@ export class VoteStore {
     }
   }
 
+  async importMissing(filePath) {
+    let parsed;
+
+    try {
+      const raw = await readFile(filePath, 'utf8');
+      parsed = JSON.parse(raw);
+    } catch (error) {
+      if (error.code === 'ENOENT') return 0;
+      throw error;
+    }
+
+    if (!Array.isArray(parsed.votes)) {
+      throw new TypeError('Файл импорта должен содержать массив votes.');
+    }
+
+    let imported = 0;
+    for (const vote of parsed.votes) {
+      if (!vote?.id || this.votes.has(vote.id)) continue;
+
+      vote.ballots ??= {};
+      this.votes.set(vote.id, vote);
+      imported += 1;
+    }
+
+    if (imported > 0) await this.save();
+    return imported;
+  }
+
   get(id) {
     return this.votes.get(id);
   }

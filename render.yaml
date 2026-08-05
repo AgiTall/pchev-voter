@@ -17,6 +17,8 @@ services:
         sync: false
       - key: VOTE_DATA_DIR
         value: /opt/render/project/src/data
+      - key: VOTE_SEED_FILE
+        value: /etc/secrets/votes-seed.json
     disk:
       name: vote-data
       mountPath: /opt/render/project/src/data

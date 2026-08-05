@@ -39,6 +39,13 @@ const dataDirectory = process.env.VOTE_DATA_DIR
   : path.resolve(currentDirectory, '../data');
 const store = new VoteStore(path.join(dataDirectory, 'votes.json'));
 await store.load();
+const seedFilePath = process.env.VOTE_SEED_FILE;
+if (seedFilePath) {
+  const imported = await store.importMissing(path.resolve(seedFilePath));
+  if (imported > 0) {
+    console.log(`Импортировано голосований из резервного файла: ${imported}.`);
+  }
+}
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
