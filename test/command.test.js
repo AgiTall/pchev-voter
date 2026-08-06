@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { commands } from '../src/command.js';
 
-test('регистрирует команды голосования и восстановления', () => {
+test('регистрирует команды голосования, партий и управления', () => {
   assert.deepEqual(
     commands.map((command) => command.name),
-    ['set-vote', 'set-multi-vote', 'restore-votes']
+    ['set-vote', 'set-multi-vote', 'restore-votes', 'parties', 'election', 'royal']
   );
 
   const multi = commands.find((command) => command.name === 'set-multi-vote');
@@ -16,4 +16,9 @@ test('регистрирует команды голосования и восс
   const restore = commands.find((command) => command.name === 'restore-votes');
   assert.equal(restore.options[0].type, 11);
   assert.equal(restore.options[0].required, true);
+
+  const royal = commands.find((command) => command.name === 'royal');
+  assert.ok(royal.default_member_permissions);
+  assert.equal(commands.find((command) => command.name === 'parties').dm_permission, false);
+  assert.equal(commands.find((command) => command.name === 'election').dm_permission, false);
 });

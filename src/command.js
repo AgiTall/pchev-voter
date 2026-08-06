@@ -128,8 +128,30 @@ export const restoreVotesCommand = new SlashCommandBuilder()
       .setRequired(true)
   );
 
+export const partiesCommand = new SlashCommandBuilder()
+  .setName('parties')
+  .setDescription('Open the server party system')
+  .setDescriptionLocalization('ru', 'Открыть меню партий сервера')
+  .setDMPermission(false);
+
+export const electionCommand = new SlashCommandBuilder()
+  .setName('election')
+  .setDescription('Vote in the active presidential election')
+  .setDescriptionLocalization('ru', 'Проголосовать на активных выборах президента')
+  .setDMPermission(false);
+
+export const royalCommand = new SlashCommandBuilder()
+  .setName('royal')
+  .setDescription('Open the political administration panel')
+  .setDescriptionLocalization('ru', 'Открыть пульт управления политической системой')
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  .setDMPermission(false);
+
 export const commands = [
   setVoteCommand.toJSON(),
   setMultiVoteCommand.toJSON(),
-  restoreVotesCommand.toJSON()
+  restoreVotesCommand.toJSON(),
+  partiesCommand.toJSON(),
+  electionCommand.toJSON(),
+  royalCommand.toJSON()
 ];

@@ -16,6 +16,9 @@ import { loadEmojiConfig } from './emoji-config.js';
 import { startHealthServer, stopHealthServer } from './health-server.js';
 import { collectHumanSeats } from './member-seats.js';
 import { ParliamentRenderer } from './parliament-renderer.js';
+import { PoliticsController } from './politics-controller.js';
+import { PoliticsService } from './politics-service.js';
+import { PoliticsStore } from './politics-store.js';
 import { VoteService } from './vote-service.js';
 import { VoteStore } from './vote-store.js';
 import { CHOICES } from './vote-ui.js';
@@ -40,6 +43,8 @@ const dataDirectory = process.env.VOTE_DATA_DIR
   : path.resolve(currentDirectory, '../data');
 const store = new VoteStore(path.join(dataDirectory, 'votes.json'));
 await store.load();
+const politicsStore = new PoliticsStore(path.join(dataDirectory, 'politics.json'));
+await politicsStore.load();
 const seedFilePath = process.env.VOTE_SEED_FILE ?? '/etc/secrets/votes-seed.json';
 const imported = await store.importMissing(path.resolve(seedFilePath));
 if (imported > 0) {
@@ -56,7 +61,14 @@ const healthServer = await startHealthServer({
     return {
       discordReady: client.isReady(),
       storedVotes: votes.length,
-      activeVotes: votes.filter((vote) => vote.status === 'active').length
+      activeVotes: votes.filter((vote) => vote.status === 'active').length,
+      parties: [...politicsStore.values()].reduce(
+        (total, state) => total + state.parties.length,
+        0
+      ),
+      activeElections: [...politicsStore.values()].filter(
+        (state) => state.election.status === 'active'
+      ).length
     };
   }
 });
@@ -65,6 +77,8 @@ const renderer = new ParliamentRenderer(
   path.resolve(currentDirectory, '../assets/parliament-background.png')
 );
 const voteService = new VoteService(client, store, renderer);
+const politicsService = new PoliticsService(client, politicsStore);
+const politicsController = new PoliticsController(politicsService, politicsStore);
 
 async function registerCommands() {
   const rest = new REST({ version: '10' }).setToken(token);
@@ -328,11 +342,29 @@ async function handleVoteButton(interaction) {
 
 client.once(Events.ClientReady, async (readyClient) => {
   console.log(`Бот запущен как ${readyClient.user.tag}.`);
-  await voteService.restore();
+  await Promise.all([voteService.restore(), politicsService.restore()]);
+});
+
+client.on(Events.GuildMemberAdd, (member) => {
+  void voteService
+    .addGuildMember(member)
+    .then(({ seatsAdded, votesUpdated }) => {
+      if (votesUpdated > 0) {
+        console.log(
+          `Новый участник ${member.user.tag} добавлен в активные голосования: ` +
+          `${seatsAdded} мест в ${votesUpdated} сообщениях.`
+        );
+      }
+    })
+    .catch((error) => {
+      console.error(`Не удалось добавить нового участника ${member.user.tag} в голосования:`, error);
+    });
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
+    if (await politicsController.handle(interaction)) return;
+
     if (interaction.isChatInputCommand() && interaction.commandName === 'set-vote') {
       await handleSetVote(interaction);
       return;
@@ -373,7 +405,9 @@ async function shutdown(signal) {
 
   try {
     await voteService.shutdown();
+    await politicsService.shutdown();
     await store.flush();
+    await politicsStore.flush();
     client.destroy();
     await stopHealthServer(healthServer);
     console.log('Бот корректно остановлен.');
