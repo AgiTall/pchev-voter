@@ -63,9 +63,12 @@ test('проводит полный созыв: партии, выборы, ка
   const service = new PoliticsService(client, store);
 
   try {
-    const alpha = (await service.createParty('guild-1', 'leader-a', 'Альфа', 'Первая')).party;
+    const alpha = (await service.createParty('guild-1', 'leader-a', 'Альфа', 'Первая', '🌹')).party;
     await service.createParty('guild-1', 'leader-b', 'Бета', 'Вторая');
     await service.joinParty('guild-1', 'member-a', alpha.id);
+    assert.equal(alpha.emoji, '🌹');
+    await service.updatePartyEmoji('guild-1', 'leader-a', '<:alpha:123456789012345678>');
+    assert.equal(alpha.emoji, '<:alpha:123456789012345678>');
 
     const started = await service.startElection(fake.guild, 'channel-1');
     assert.equal(started.announcementSent, true);

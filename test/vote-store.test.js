@@ -67,3 +67,22 @@ test('импортирует отсутствующие голосования �
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test('сохраняет голоса через подключённый PostgreSQL backend', async () => {
+  const rows = new Map();
+  const database = {
+    read: async (key) => rows.get(key) ?? null,
+    write: async (key, payload) => rows.set(key, structuredClone(payload))
+  };
+
+  const first = new VoteStore('unused.json', { database });
+  await first.set({ id: 'database-vote', status: 'active', ballots: { user: 'for' } });
+
+  const restored = new VoteStore('unused.json', { database });
+  await restored.load();
+  assert.deepEqual(restored.get('database-vote'), {
+    id: 'database-vote',
+    status: 'active',
+    ballots: { user: 'for' }
+  });
+});

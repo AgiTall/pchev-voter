@@ -15,6 +15,7 @@ function makeState() {
       {
         id: 'party-a',
         name: 'Альфа',
+        emoji: '🌹',
         description: 'Первая партия',
         leaderId: 'leader-a',
         members: ['leader-a', 'member-a']
@@ -22,6 +23,7 @@ function makeState() {
       {
         id: 'party-b',
         name: 'Бета',
+        emoji: '🌊',
         description: 'Вторая партия',
         leaderId: 'leader-b',
         members: ['leader-b']
@@ -37,7 +39,7 @@ function makeState() {
   };
 }
 
-test('строит персональное меню партий с Select Menu и четырьмя действиями', () => {
+test('строит персональное меню партий с Select Menu и пятью действиями', () => {
   const message = buildPartiesMessage(makeState(), 'outsider', { selectedPartyId: 'party-a' });
   const embed = message.embeds[0].toJSON();
   const select = message.components[0].components[0].toJSON();
@@ -46,8 +48,10 @@ test('строит персональное меню партий с Select Menu
   assert.equal(embed.color, POLITICS_COLOR);
   assert.equal(select.options.length, 2);
   assert.equal(select.options[0].default, true);
-  assert.equal(buttons.length, 4);
+  assert.equal(select.options[0].emoji.name, '🌹');
+  assert.equal(buttons.length, 5);
   assert.equal(buttons[1].disabled, true, 'состав партий заморожен во время выборов');
+  assert.equal(buttons[4].disabled, true, 'менять логотип может только лидер');
 });
 
 test('считает голоса и определяет единственного победителя', () => {

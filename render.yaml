@@ -16,5 +16,7 @@ services:
         sync: false
       - key: CLIENT_ID
         sync: false
+      - key: DATABASE_URL
+        sync: false
       - key: VOTE_SEED_FILE
         value: /etc/secrets/votes-seed.json

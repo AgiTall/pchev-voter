@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { PermissionFlagsBits } from 'discord.js';
+import { DEFAULT_PARTY_EMOJI, normalizePartyEmoji } from './party-emoji.js';
 import {
   buildElectionFinishedEmbed,
   buildElectionStartedEmbed,
@@ -45,11 +46,18 @@ export class PoliticsService {
     }
   }
 
-  async createParty(guildId, userId, nameInput, descriptionInput) {
+  async createParty(
+    guildId,
+    userId,
+    nameInput,
+    descriptionInput,
+    emojiInput = DEFAULT_PARTY_EMOJI
+  ) {
     return this.runExclusive(guildId, async () => {
       const state = this.store.get(guildId);
       const name = cleanText(nameInput);
       const description = String(descriptionInput ?? '').trim();
+      const emoji = normalizePartyEmoji(emojiInput);
 
       if (state.election.status === 'active') {
         throw new PoliticsError('Во время выборов состав и список партий заморожены.');
@@ -66,6 +74,9 @@ export class PoliticsService {
       if (description.length < 2 || description.length > 1_000) {
         throw new PoliticsError('Описание партии должно содержать от 2 до 1000 символов.');
       }
+      if (!emoji) {
+        throw new PoliticsError('Логотип должен быть одним эмодзи или Discord-эмодзи вида <:name:id>.');
+      }
       const duplicate = state.parties.some(
         (party) => party.name.localeCompare(name, 'ru', { sensitivity: 'accent' }) === 0
       );
@@ -74,6 +85,7 @@ export class PoliticsService {
       const party = {
         id: randomUUID(),
         name,
+        emoji,
         description,
         leaderId: userId,
         members: [userId],
@@ -82,6 +94,25 @@ export class PoliticsService {
       state.parties.push(party);
       await this.store.save();
       return { party, configuredCost: state.settings.partyCreationCost };
+    });
+  }
+
+  async updatePartyEmoji(guildId, userId, emojiInput) {
+    return this.runExclusive(guildId, async () => {
+      const state = this.store.get(guildId);
+      const party = findUserParty(state, userId);
+      if (!party) throw new PoliticsError('Вы не состоите ни в одной партии.');
+      if (party.leaderId !== userId) {
+        throw new PoliticsError('Менять логотип может только лидер партии.');
+      }
+      const emoji = normalizePartyEmoji(emojiInput);
+      if (!emoji) {
+        throw new PoliticsError('Логотип должен быть одним эмодзи или Discord-эмодзи вида <:name:id>.');
+      }
+
+      party.emoji = emoji;
+      await this.store.save();
+      return party;
     });
   }
 

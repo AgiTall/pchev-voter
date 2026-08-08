@@ -2,16 +2,21 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 export class VoteStore {
-  constructor(filePath) {
+  constructor(filePath, { database = null, stateKey = 'votes' } = {}) {
     this.filePath = filePath;
+    this.database = database;
+    this.stateKey = stateKey;
     this.votes = new Map();
     this.writeQueue = Promise.resolve();
   }
 
   async load() {
     try {
-      const raw = await readFile(this.filePath, 'utf8');
-      const parsed = JSON.parse(raw);
+      const parsed = this.database
+        ? await this.database.read(this.stateKey)
+        : JSON.parse(await readFile(this.filePath, 'utf8'));
+
+      if (!parsed) return;
 
       for (const vote of parsed.votes ?? []) {
         vote.ballots ??= {};
@@ -78,14 +83,15 @@ export class VoteStore {
   }
 
   async save() {
+    const state = { version: 1, votes: [...this.votes.values()] };
     const writeSnapshot = async () => {
+      if (this.database) {
+        await this.database.write(this.stateKey, state);
+        return;
+      }
       const directory = path.dirname(this.filePath);
       const temporaryPath = `${this.filePath}.${process.pid}.tmp`;
-      const payload = JSON.stringify(
-        { version: 1, votes: [...this.votes.values()] },
-        null,
-        2
-      );
+      const payload = JSON.stringify(state, null, 2);
 
       await mkdir(directory, { recursive: true });
       await writeFile(temporaryPath, payload, 'utf8');

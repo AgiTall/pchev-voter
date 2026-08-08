@@ -15,6 +15,7 @@ test('сохраняет политическое состояние отдел�
     state.parties.push({
       id: 'party-1',
       name: 'Прогресс',
+      emoji: '🚀',
       description: 'Вперёд',
       leaderId: 'leader',
       members: ['leader', 'member'],
@@ -28,10 +29,27 @@ test('сохраняет политическое состояние отдел�
     const restored = new PoliticsStore(filePath);
     await restored.load();
     assert.equal(restored.get('guild-1').parties[0].name, 'Прогресс');
+    assert.equal(restored.get('guild-1').parties[0].emoji, '🚀');
     assert.deepEqual(restored.get('guild-1').parties[0].members, ['leader', 'member']);
     assert.equal(restored.get('guild-1').election.ballots.member, 'party-1');
     assert.equal(restored.get('guild-2').settings.moderatorLimit, 3);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test('сохраняет политическую систему через PostgreSQL backend', async () => {
+  const rows = new Map();
+  const database = {
+    read: async (key) => rows.get(key) ?? null,
+    write: async (key, payload) => rows.set(key, structuredClone(payload))
+  };
+
+  const first = new PoliticsStore('unused.json', { database });
+  first.get('guild-db').settings.moderatorLimit = 7;
+  await first.save();
+
+  const restored = new PoliticsStore('unused.json', { database });
+  await restored.load();
+  assert.equal(restored.get('guild-db').settings.moderatorLimit, 7);
 });

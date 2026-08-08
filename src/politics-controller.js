@@ -7,6 +7,7 @@ import {
   buildElectionMessage,
   buildElectionResultsEmbed,
   buildPartiesMessage,
+  buildPartyEmojiModal,
   buildRoyalMessage,
   buildSettingsModal,
   findUserParty,
@@ -175,7 +176,8 @@ export class PoliticsController {
         interaction.guildId,
         interaction.user.id,
         interaction.fields.getTextInputValue('name'),
-        interaction.fields.getTextInputValue('description')
+        interaction.fields.getTextInputValue('description'),
+        interaction.fields.getTextInputValue('emoji')
       );
       this.setSelection(this.partySelections, key, result.party.id);
       const costNote = result.configuredCost > 0
@@ -185,6 +187,22 @@ export class PoliticsController {
         buildPartiesMessage(this.store.get(interaction.guildId), interaction.user.id, {
           selectedPartyId: result.party.id,
           notice: `✅ Партия **${result.party.name}** создана.${costNote}`
+        })
+      );
+      return;
+    }
+
+    if (interaction.customId === POLITICS_IDS.PARTY_EMOJI_MODAL) {
+      const party = await this.service.updatePartyEmoji(
+        interaction.guildId,
+        interaction.user.id,
+        interaction.fields.getTextInputValue('emoji')
+      );
+      this.setSelection(this.partySelections, key, party.id);
+      await interaction.update(
+        buildPartiesMessage(this.store.get(interaction.guildId), interaction.user.id, {
+          selectedPartyId: party.id,
+          notice: `✅ Логотип партии **${party.name}** обновлён: ${party.emoji}`
         })
       );
       return;
@@ -257,6 +275,15 @@ export class PoliticsController {
           notice: `✅ Вы вступили в партию **${party.name}**.`
         })
       );
+      return;
+    }
+
+    if (interaction.customId === POLITICS_IDS.PARTY_EMOJI) {
+      const party = findUserParty(state, interaction.user.id);
+      if (!party || party.leaderId !== interaction.user.id) {
+        throw new PoliticsError('Менять логотип может только лидер партии.');
+      }
+      await interaction.showModal(buildPartyEmojiModal(party));
       return;
     }
 

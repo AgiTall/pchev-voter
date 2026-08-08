@@ -19,6 +19,7 @@ import { ParliamentRenderer } from './parliament-renderer.js';
 import { PoliticsController } from './politics-controller.js';
 import { PoliticsService } from './politics-service.js';
 import { PoliticsStore } from './politics-store.js';
+import { PostgresState } from './postgres-state.js';
 import { VoteService } from './vote-service.js';
 import { VoteStore } from './vote-store.js';
 import { CHOICES } from './vote-ui.js';
@@ -41,14 +42,31 @@ await loadEmojiConfig(path.resolve(currentDirectory, '../config/emojis.json'));
 const dataDirectory = process.env.VOTE_DATA_DIR
   ? path.resolve(process.env.VOTE_DATA_DIR)
   : path.resolve(currentDirectory, '../data');
-const store = new VoteStore(path.join(dataDirectory, 'votes.json'));
+let database = null;
+if (process.env.DATABASE_URL) {
+  try {
+    database = new PostgresState(process.env.DATABASE_URL);
+    await database.connect();
+    console.log('Подключено постоянное хранилище PostgreSQL.');
+  } catch (error) {
+    console.error('Не удалось подключиться к PostgreSQL:', error);
+    process.exit(1);
+  }
+}
+
+const store = new VoteStore(path.join(dataDirectory, 'votes.json'), { database });
 await store.load();
-const politicsStore = new PoliticsStore(path.join(dataDirectory, 'politics.json'));
+const politicsStore = new PoliticsStore(path.join(dataDirectory, 'politics.json'), { database });
 await politicsStore.load();
 const seedFilePath = process.env.VOTE_SEED_FILE ?? '/etc/secrets/votes-seed.json';
 const imported = await store.importMissing(path.resolve(seedFilePath));
 if (imported > 0) {
   console.log(`Импортировано голосований из резервного файла: ${imported}.`);
+}
+const politicsSeedFilePath = process.env.POLITICS_SEED_FILE ?? '/etc/secrets/politics-seed.json';
+const importedPolitics = await politicsStore.importMissing(path.resolve(politicsSeedFilePath));
+if (importedPolitics > 0) {
+  console.log(`Импортировано серверов политической системы: ${importedPolitics}.`);
 }
 
 const client = new Client({
@@ -62,6 +80,7 @@ const healthServer = await startHealthServer({
       discordReady: client.isReady(),
       storedVotes: votes.length,
       activeVotes: votes.filter((vote) => vote.status === 'active').length,
+      storage: database ? 'postgresql' : 'json',
       parties: [...politicsStore.values()].reduce(
         (total, state) => total + state.parties.length,
         0
@@ -408,6 +427,7 @@ async function shutdown(signal) {
     await politicsService.shutdown();
     await store.flush();
     await politicsStore.flush();
+    await database?.close();
     client.destroy();
     await stopHealthServer(healthServer);
     console.log('Бот корректно остановлен.');
@@ -426,5 +446,6 @@ try {
   await client.login(token);
 } catch (error) {
   console.error('Не удалось запустить бота:', error);
+  await database?.close().catch(() => {});
   process.exit(1);
 }

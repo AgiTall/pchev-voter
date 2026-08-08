@@ -10,6 +10,7 @@ import {
   UserSelectMenuBuilder
 } from 'discord.js';
 import { formatDuration } from './duration.js';
+import { DEFAULT_PARTY_EMOJI } from './party-emoji.js';
 
 export const POLITICS_COLOR = 0x102c4d;
 
@@ -19,8 +20,10 @@ export const POLITICS_IDS = Object.freeze({
   PARTY_JOIN: 'politics:party:join',
   PARTY_LEAVE: 'politics:party:leave',
   PARTY_CABINET: 'politics:party:cabinet',
+  PARTY_EMOJI: 'politics:party:emoji',
   PARTY_BACK: 'politics:party:back',
   PARTY_CREATE_MODAL: 'politics:modal:create-party',
+  PARTY_EMOJI_MODAL: 'politics:modal:party-emoji',
   ELECTION_SELECT: 'politics:election:select',
   ELECTION_VOTE: 'politics:election:vote',
   ELECTION_RESULTS: 'politics:election:results',
@@ -39,6 +42,8 @@ const truncate = (value, maxLength) => {
   const source = String(value ?? '');
   return source.length <= maxLength ? source : `${source.slice(0, maxLength - 1)}…`;
 };
+
+const partyEmoji = (party) => party?.emoji || DEFAULT_PARTY_EMOJI;
 
 export function findUserParty(state, userId) {
   return state.parties.find((party) => party.members.includes(userId)) ?? null;
@@ -74,6 +79,7 @@ function partyOptions(state, selectedPartyId) {
   return state.parties.map((party) => ({
     label: truncate(party.name, 100),
     description: truncate(`${party.members.length} участн. · лидер в составе`, 100),
+    emoji: partyEmoji(party),
     value: party.id,
     default: party.id === selectedPartyId
   }));
@@ -94,7 +100,7 @@ export function buildPartiesMessage(state, userId, { selectedPartyId, notice } =
   const memberCount = new Set(state.parties.flatMap((party) => party.members)).size;
   const partyList = state.parties.length
     ? state.parties
-      .map((party, index) => `${index + 1}. **${truncate(party.name, 70)}** — ${party.members.length} участн.`)
+      .map((party, index) => `${index + 1}. ${partyEmoji(party)} **${truncate(party.name, 70)}** — ${party.members.length} участн.`)
       .join('\n')
     : 'Пока не создано ни одной партии.';
 
@@ -104,7 +110,7 @@ export function buildPartiesMessage(state, userId, { selectedPartyId, notice } =
     .setDescription(
       `${electionStatusText(state)}\n\n` +
       `**Партий:** ${state.parties.length} · **Участников:** ${memberCount}\n` +
-      `**Ваша партия:** ${membership ? membership.name : 'нет'}\n` +
+      `**Ваша партия:** ${membership ? `${partyEmoji(membership)} ${membership.name}` : 'нет'}\n` +
       `**Создание партии:** ${state.settings.partyCreationCost || 'бесплатно'}\n\n` +
       truncate(partyList, 2_500)
     )
@@ -114,7 +120,7 @@ export function buildPartiesMessage(state, userId, { selectedPartyId, notice } =
     const members = selected.members.map((id) => `<@${id}>`).join(', ');
     embed.addFields(
       {
-        name: `📜 ${truncate(selected.name, 240)}`,
+        name: `${partyEmoji(selected)} ${truncate(selected.name, 240)}`,
         value: truncate(selected.description || 'Описание не указано.', 1_024)
       },
       { name: 'Лидер', value: `<@${selected.leaderId}>`, inline: true },
@@ -159,7 +165,13 @@ export function buildPartiesMessage(state, userId, { selectedPartyId, notice } =
         .setCustomId(POLITICS_IDS.PARTY_CABINET)
         .setLabel('Кабинет')
         .setEmoji('👑')
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(POLITICS_IDS.PARTY_EMOJI)
+        .setLabel('Лого')
+        .setEmoji('🎨')
         .setStyle(ButtonStyle.Secondary)
+        .setDisabled(!membership || membership.leaderId !== userId)
     )
   );
 
@@ -188,6 +200,16 @@ export function buildCreatePartyModal() {
       ),
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
+          .setCustomId('emoji')
+          .setLabel('Эмодзи-логотип')
+          .setPlaceholder('Например: 🌹 или <:logo:123456789012345678>')
+          .setStyle(TextInputStyle.Short)
+          .setMinLength(1)
+          .setMaxLength(100)
+          .setRequired(true)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
           .setCustomId('description')
           .setLabel('Официальный слоган / описание')
           .setPlaceholder('Кратко расскажите о целях партии')
@@ -199,12 +221,31 @@ export function buildCreatePartyModal() {
     );
 }
 
+export function buildPartyEmojiModal(party) {
+  return new ModalBuilder()
+    .setCustomId(POLITICS_IDS.PARTY_EMOJI_MODAL)
+    .setTitle('Логотип партии')
+    .addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('emoji')
+          .setLabel('Один эмодзи')
+          .setPlaceholder('🌹 или <:logo:123456789012345678>')
+          .setValue(partyEmoji(party))
+          .setStyle(TextInputStyle.Short)
+          .setMinLength(1)
+          .setMaxLength(100)
+          .setRequired(true)
+      )
+    );
+}
+
 function resultLines(state) {
   const { counts, total } = countElectionBallots(state);
   return state.parties.map((party) => {
     const count = counts[party.id];
     const percent = total ? ((count / total) * 100).toFixed(1) : '0.0';
-    return `**${truncate(party.name, 55)}:** ${count} · ${percent}%`;
+    return `${partyEmoji(party)} **${truncate(party.name, 55)}:** ${count} · ${percent}%`;
   });
 }
 
@@ -228,8 +269,8 @@ export function buildElectionMessage(state, userId, { selectedPartyId, notice } 
     .setDescription(
       `Голосование завершится <t:${Math.floor(state.election.endsAt / 1000)}:R>.\n` +
       `Вы можете изменить голос до завершения выборов.\n\n` +
-      `**Выбрано в меню:** ${selected?.name ?? 'ничего'}\n` +
-      `**Ваш текущий голос:** ${currentParty?.name ?? 'не отдан'}`
+      `**Выбрано в меню:** ${selected ? `${partyEmoji(selected)} ${selected.name}` : 'ничего'}\n` +
+      `**Ваш текущий голос:** ${currentParty ? `${partyEmoji(currentParty)} ${currentParty.name}` : 'не отдан'}`
     );
 
   const select = new ActionRowBuilder().addComponents(
@@ -269,7 +310,7 @@ export function buildRoyalMessage(state, { notice } = {}) {
     .setDescription(
       `${electionStatusText(state)}\n\n` +
       `**Президент:** ${president}\n` +
-      `**Правящая партия:** ${governingParty?.name ?? 'нет'}\n` +
+      `**Правящая партия:** ${governingParty ? `${partyEmoji(governingParty)} ${governingParty.name}` : 'нет'}\n` +
       `**Помощников:** ${state.office.assistants.length}/${state.settings.moderatorLimit}\n` +
       `**Партий:** ${state.parties.length}`
     )
@@ -360,7 +401,7 @@ export function buildCabinetMessage(state, { selectedUserId, notice } = {}) {
     .setTitle('👑 Кабинет Президента')
     .setDescription(
       `**Президент:** <@${state.office.presidentId}>\n` +
-      `**Партия:** ${party?.name ?? 'не найдена'}\n` +
+      `**Партия:** ${party ? `${partyEmoji(party)} ${party.name}` : 'не найдена'}\n` +
       `**Выбранный участник:** ${selected}`
     )
     .addFields({
@@ -418,14 +459,14 @@ export function buildElectionFinishedEmbed(state, outcome = getElectionOutcome(s
       .setTitle('🏆 Выборы завершены')
       .addFields({
         name: 'Победитель',
-        value: `**${outcome.winner.name}**\nПрезидент: <@${outcome.winner.leaderId}>`
+        value: `${partyEmoji(outcome.winner)} **${outcome.winner.name}**\nПрезидент: <@${outcome.winner.leaderId}>`
       });
   } else if (outcome.type === 'tie') {
     embed
       .setTitle('🤝 Выборы завершены ничьей')
       .addFields({
         name: 'Лидеры',
-        value: truncate(outcome.winners.map((party) => party.name).join(', '), 1_024)
+        value: truncate(outcome.winners.map((party) => `${partyEmoji(party)} ${party.name}`).join(', '), 1_024)
       });
   } else {
     embed.setTitle('⚪ Выборы завершены без голосов');
