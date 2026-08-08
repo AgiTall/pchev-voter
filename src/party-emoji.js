@@ -13,3 +13,20 @@ export function normalizePartyEmoji(value, { fallback = null } = {}) {
   if (graphemes.length === 1 && EMOJI_CODE_POINT_PATTERN.test(emoji)) return emoji;
   return fallback;
 }
+
+export function resolveGuildPartyEmoji(value, emojis) {
+  const input = String(value ?? '').trim();
+  const normalized = normalizePartyEmoji(input);
+  if (normalized) return normalized;
+
+  const emojiId = /^\d{17,20}$/.test(input) ? input : null;
+  const emojiName = input.match(/^:([A-Za-z0-9_]{2,32}):$/)?.[1] ??
+    (/^[A-Za-z0-9_]{2,32}$/.test(input) ? input : null);
+  const collection = emojis?.values ? [...emojis.values()] : [...(emojis ?? [])];
+  const emoji = emojiId
+    ? collection.find((candidate) => candidate.id === emojiId)
+    : collection.find((candidate) => candidate.name?.toLowerCase() === emojiName?.toLowerCase());
+
+  if (!emoji?.id || !emoji?.name) return null;
+  return `<${emoji.animated ? 'a' : ''}:${emoji.name}:${emoji.id}>`;
+}

@@ -201,8 +201,8 @@ export function buildCreatePartyModal() {
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('emoji')
-          .setLabel('Эмодзи-логотип')
-          .setPlaceholder('Например: 🌹 или <:logo:123456789012345678>')
+          .setLabel('Эмодзи сервера или обычное')
+          .setPlaceholder('Эмодзи, :name:, name или ID')
           .setStyle(TextInputStyle.Short)
           .setMinLength(1)
           .setMaxLength(100)
@@ -229,8 +229,8 @@ export function buildPartyEmojiModal(party) {
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('emoji')
-          .setLabel('Один эмодзи')
-          .setPlaceholder('🌹 или <:logo:123456789012345678>')
+          .setLabel('Эмодзи сервера или обычное')
+          .setPlaceholder('Эмодзи, :name:, name или ID')
           .setValue(partyEmoji(party))
           .setStyle(TextInputStyle.Short)
           .setMinLength(1)

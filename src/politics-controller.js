@@ -1,5 +1,6 @@
 import { MessageFlags, PermissionFlagsBits } from 'discord.js';
 import { parseDuration } from './duration.js';
+import { resolveGuildPartyEmoji } from './party-emoji.js';
 import { PoliticsError } from './politics-service.js';
 import {
   buildCabinetMessage,
@@ -172,12 +173,18 @@ export class PoliticsController {
     const key = this.selectionKey(interaction);
 
     if (interaction.customId === POLITICS_IDS.PARTY_CREATE_MODAL) {
+      const emojiInput = interaction.fields.getTextInputValue('emoji');
+      const guildEmojis = await interaction.guild.emojis.fetch().catch(() => interaction.guild.emojis.cache);
+      const emoji = resolveGuildPartyEmoji(emojiInput, guildEmojis);
+      if (!emoji) {
+        throw new PoliticsError('Эмодзи не найдено на этом сервере. Вставьте эмодзи, его имя или ID.');
+      }
       const result = await this.service.createParty(
         interaction.guildId,
         interaction.user.id,
         interaction.fields.getTextInputValue('name'),
         interaction.fields.getTextInputValue('description'),
-        interaction.fields.getTextInputValue('emoji')
+        emoji
       );
       this.setSelection(this.partySelections, key, result.party.id);
       const costNote = result.configuredCost > 0
@@ -193,10 +200,16 @@ export class PoliticsController {
     }
 
     if (interaction.customId === POLITICS_IDS.PARTY_EMOJI_MODAL) {
+      const emojiInput = interaction.fields.getTextInputValue('emoji');
+      const guildEmojis = await interaction.guild.emojis.fetch().catch(() => interaction.guild.emojis.cache);
+      const emoji = resolveGuildPartyEmoji(emojiInput, guildEmojis);
+      if (!emoji) {
+        throw new PoliticsError('Эмодзи не найдено на этом сервере. Вставьте эмодзи, его имя или ID.');
+      }
       const party = await this.service.updatePartyEmoji(
         interaction.guildId,
         interaction.user.id,
-        interaction.fields.getTextInputValue('emoji')
+        emoji
       );
       this.setSelection(this.partySelections, key, party.id);
       await interaction.update(
