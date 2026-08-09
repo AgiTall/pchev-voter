@@ -7,9 +7,13 @@ import {
   buildCreatePartyModal,
   buildElectionMessage,
   buildElectionResultsEmbed,
+  buildHelpMessage,
   buildPartiesMessage,
+  buildProfileMessage,
+  buildPublicPartiesMessage,
   buildPartyEmojiModal,
   buildRoyalMessage,
+  buildRoyalConfirmation,
   buildSettingsModal,
   findUserParty,
   POLITICS_IDS
@@ -73,7 +77,7 @@ export class PoliticsController {
   async handle(interaction) {
     const isCommand =
       interaction.isChatInputCommand() &&
-      ['parties', 'election', 'royal'].includes(interaction.commandName);
+      ['help', 'profile', 'parties', 'election', 'royal'].includes(interaction.commandName);
     const isComponent =
       (interaction.isButton() || interaction.isAnySelectMenu() || interaction.isModalSubmit()) &&
       interaction.customId.startsWith('politics:');
@@ -95,6 +99,19 @@ export class PoliticsController {
     this.requireGuild(interaction);
     const state = this.store.get(interaction.guildId);
     const key = this.selectionKey(interaction);
+
+    if (interaction.commandName === 'help') {
+      await interaction.reply({ ...buildHelpMessage(), flags: MessageFlags.Ephemeral });
+      return;
+    }
+
+    if (interaction.commandName === 'profile') {
+      await interaction.reply({
+        ...buildProfileMessage(state, interaction.user.id),
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
 
     if (interaction.commandName === 'parties') {
       const selectedPartyId = this.partySelections.get(key);
@@ -118,8 +135,18 @@ export class PoliticsController {
     }
 
     this.requireAdministrator(interaction);
+    const announcements = interaction.options.getChannel('announcements');
+    const log = interaction.options.getChannel('log');
+    let notice;
+    if (announcements || log) {
+      await this.service.updateSettings(interaction.guildId, {
+        ...(announcements ? { announcementChannelId: announcements.id } : {}),
+        ...(log ? { logChannelId: log.id } : {})
+      });
+      notice = '✅ Каналы сохранены.';
+    }
     await interaction.reply({
-      ...buildRoyalMessage(state),
+      ...buildRoyalMessage(state, { notice }),
       flags: MessageFlags.Ephemeral
     });
   }
@@ -313,6 +340,38 @@ export class PoliticsController {
       return;
     }
 
+    if (interaction.customId === POLITICS_IDS.PARTY_PUBLISH) {
+      if (!interaction.channel?.isTextBased()) {
+        throw new PoliticsError('Здесь нельзя отправить список партий в канал.');
+      }
+      try {
+        await this.service.publishPartySummary(
+          interaction.guild,
+          interaction.channelId,
+          interaction.user.id
+        );
+      } catch (error) {
+        if (error instanceof PoliticsError) throw error;
+        throw new PoliticsError('Не удалось отправить список. Проверьте право бота «Отправлять сообщения».');
+      }
+      await interaction.update(
+        buildPartiesMessage(state, interaction.user.id, {
+          selectedPartyId: this.partySelections.get(key),
+          notice: '✅ Список партий опубликован в канале.'
+        })
+      );
+      return;
+    }
+
+    if (interaction.customId === POLITICS_IDS.PARTY_REFRESH) {
+      if (state.publicSummary.messageId !== interaction.message.id) {
+        throw new PoliticsError('Это устаревшая сводка. Опубликуйте новую через /parties.');
+      }
+      this.service.claimPublicRefresh(interaction.guildId, interaction.user.id);
+      await interaction.update(buildPublicPartiesMessage(state));
+      return;
+    }
+
     if (interaction.customId === POLITICS_IDS.PARTY_CABINET) {
       this.requirePresident(interaction);
       const selectedUserId = this.cabinetSelections.get(key);
@@ -371,6 +430,11 @@ export class PoliticsController {
     }
 
     if (interaction.customId === POLITICS_IDS.ROYAL_FINISH) {
+      await interaction.update(buildRoyalConfirmation(state, 'finish'));
+      return;
+    }
+
+    if (interaction.customId === POLITICS_IDS.ROYAL_FINISH_CONFIRM) {
       await interaction.deferUpdate();
       const result = await this.service.finishElection(interaction.guild, { announce: true });
       const warning = result.warnings.length ? ` ⚠️ ${result.warnings.join(' ')}` : '';
@@ -386,18 +450,27 @@ export class PoliticsController {
     }
 
     if (interaction.customId === POLITICS_IDS.ROYAL_IMPEACH) {
+      await interaction.update(buildRoyalConfirmation(state, 'impeach'));
+      return;
+    }
+
+    if (interaction.customId === POLITICS_IDS.ROYAL_IMPEACH_CONFIRM) {
       await interaction.deferUpdate();
       const result = await this.service.impeach(interaction.guild);
       const warning = result.warnings.length ? ` ⚠️ ${result.warnings.join(' ')}` : '';
       await interaction.editReply(
         buildRoyalMessage(result.state, { notice: `✅ Созыв обнулён, выданные роли сняты.${warning}` })
       );
-      if (interaction.channel?.isTextBased()) {
-        await interaction.channel.send({
-          content: '❌ **Созыв распущен.** Президент и назначенные помощники сняты с должностей.',
-          allowedMentions: { parse: [] }
-        });
-      }
+      await this.service.sendPublicNotice(
+        interaction.guild,
+        interaction.channelId,
+        '❌ **Созыв распущен.** Президент и назначенные помощники сняты с должностей.'
+      );
+      return;
+    }
+
+    if (interaction.customId === POLITICS_IDS.ROYAL_CANCEL) {
+      await interaction.update(buildRoyalMessage(state, { notice: 'Действие отменено.' }));
       return;
     }
 

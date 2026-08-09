@@ -23,6 +23,8 @@ test('сохраняет политическое состояние отдел�
     });
     state.election.status = 'active';
     state.election.ballots.member = 'party-1';
+    state.publicSummary = { channelId: 'channel-1', messageId: 'message-1' };
+    state.settings.logChannelId = 'log-1';
     await first.save();
     await first.flush();
 
@@ -32,7 +34,10 @@ test('сохраняет политическое состояние отдел�
     assert.equal(restored.get('guild-1').parties[0].emoji, '🚀');
     assert.deepEqual(restored.get('guild-1').parties[0].members, ['leader', 'member']);
     assert.equal(restored.get('guild-1').election.ballots.member, 'party-1');
+    assert.equal(restored.get('guild-1').publicSummary.messageId, 'message-1');
+    assert.equal(restored.get('guild-1').settings.logChannelId, 'log-1');
     assert.equal(restored.get('guild-2').settings.moderatorLimit, 3);
+    assert.equal(restored.get('guild-2').settings.announcementChannelId, null);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

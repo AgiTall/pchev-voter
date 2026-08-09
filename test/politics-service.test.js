@@ -10,6 +10,7 @@ function makeGuild() {
   const members = new Map();
   const roles = new Map();
   const announcements = [];
+  const messages = new Map();
 
   const getMember = (id) => {
     if (!members.has(id)) {
@@ -48,11 +49,24 @@ function makeGuild() {
     channels: {
       fetch: async () => ({
         isTextBased: () => true,
-        send: async (message) => announcements.push(message)
+        messages: { fetch: async (id) => messages.get(id) ?? null },
+        send: async (payload) => {
+          announcements.push(payload);
+          const message = {
+            id: `message-${messages.size + 1}`,
+            payload,
+            edit: async (next) => {
+              message.payload = next;
+              return message;
+            }
+          };
+          messages.set(message.id, message);
+          return message;
+        }
       })
     }
   };
-  return { guild, members, roles, announcements, getMember };
+  return { guild, members, roles, announcements, messages, getMember };
 }
 
 test('проводит полный созыв: партии, выборы, кабинет и импичмент', async () => {
@@ -89,6 +103,31 @@ test('проводит полный созыв: партии, выборы, ка
     assert.equal(fake.getMember('leader-a').roles.cache.size, 0);
     assert.equal(fake.getMember('member-a').roles.cache.size, 0);
     assert.equal(fake.announcements.length, 1, 'старт выборов публикует анонс');
+  } finally {
+    await service.shutdown();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('публикует одну автообновляемую сводку и ограничивает спам', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pchev-politics-summary-'));
+  const store = new PoliticsStore(path.join(directory, 'politics.json'));
+  const fake = makeGuild();
+  const client = { guilds: { fetch: async () => fake.guild } };
+  const service = new PoliticsService(client, store);
+
+  try {
+    const alpha = (await service.createParty('guild-1', 'leader-a', 'Альфа', 'Первая')).party;
+    await service.publishPartySummary(fake.guild, 'channel-1', 'publisher');
+    const summaryId = store.get('guild-1').publicSummary.messageId;
+    await service.joinParty('guild-1', 'member-a', alpha.id);
+
+    assert.equal(fake.messages.size, 1);
+    assert.match(fake.messages.get(summaryId).payload.embeds[0].toJSON().description, /2 участн/);
+    await assert.rejects(
+      service.publishPartySummary(fake.guild, 'channel-1', 'publisher'),
+      /Подождите/
+    );
   } finally {
     await service.shutdown();
     await rm(directory, { recursive: true, force: true });

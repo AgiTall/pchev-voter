@@ -5,7 +5,9 @@ import { DEFAULT_PARTY_EMOJI, normalizePartyEmoji } from './party-emoji.js';
 export const DEFAULT_POLITICS_SETTINGS = Object.freeze({
   electionDurationMs: 86_400_000,
   moderatorLimit: 3,
-  partyCreationCost: 0
+  partyCreationCost: 0,
+  announcementChannelId: null,
+  logChannelId: null
 });
 
 function makeGuildState(guildId) {
@@ -30,6 +32,10 @@ function makeGuildState(guildId) {
     roleIds: {
       president: null,
       assistant: null
+    },
+    publicSummary: {
+      channelId: null,
+      messageId: null
     },
     settings: { ...DEFAULT_POLITICS_SETTINGS }
   };
@@ -62,6 +68,7 @@ function normalizeGuildState(guildId, source = {}) {
     assistants: [...new Set((source.office?.assistants ?? []).map(String))]
   };
   state.roleIds = { ...state.roleIds, ...(source.roleIds ?? {}) };
+  state.publicSummary = { ...state.publicSummary, ...(source.publicSummary ?? {}) };
   state.settings = { ...state.settings, ...(source.settings ?? {}) };
 
   return state;

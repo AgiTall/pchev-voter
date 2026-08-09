@@ -5,7 +5,7 @@ import { commands } from '../src/command.js';
 test('регистрирует команды голосования, партий и управления', () => {
   assert.deepEqual(
     commands.map((command) => command.name),
-    ['set-vote', 'set-multi-vote', 'restore-votes', 'parties', 'election', 'royal']
+    ['set-vote', 'set-multi-vote', 'restore-votes', 'help', 'profile', 'parties', 'election', 'royal']
   );
 
   const multi = commands.find((command) => command.name === 'set-multi-vote');
@@ -19,6 +19,7 @@ test('регистрирует команды голосования, парти
 
   const royal = commands.find((command) => command.name === 'royal');
   assert.ok(royal.default_member_permissions);
+  assert.deepEqual(royal.options.map((option) => option.name), ['announcements', 'log']);
   assert.equal(commands.find((command) => command.name === 'parties').dm_permission, false);
   assert.equal(commands.find((command) => command.name === 'election').dm_permission, false);
 });

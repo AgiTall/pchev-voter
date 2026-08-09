@@ -1,4 +1,4 @@
-import { PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
+import { ChannelType, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 
 function localizedStringOption({ name, ruName, description, ruDescription, maxLength }) {
   return (option) =>
@@ -140,17 +140,47 @@ export const electionCommand = new SlashCommandBuilder()
   .setDescriptionLocalization('ru', 'Проголосовать на активных выборах президента')
   .setDMPermission(false);
 
+export const helpCommand = new SlashCommandBuilder()
+  .setName('help')
+  .setDescription('Show a short bot guide')
+  .setDescriptionLocalization('ru', 'Показать краткую справку по боту')
+  .setDMPermission(false);
+
+export const profileCommand = new SlashCommandBuilder()
+  .setName('profile')
+  .setDescription('Show your political profile')
+  .setDescriptionLocalization('ru', 'Показать свой политический профиль')
+  .setDMPermission(false);
+
 export const royalCommand = new SlashCommandBuilder()
   .setName('royal')
   .setDescription('Open the political administration panel')
   .setDescriptionLocalization('ru', 'Открыть пульт управления политической системой')
   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-  .setDMPermission(false);
+  .setDMPermission(false)
+  .addChannelOption((option) =>
+    option
+      .setName('announcements')
+      .setNameLocalization('ru', 'анонсы')
+      .setDescription('Channel for elections and public announcements')
+      .setDescriptionLocalization('ru', 'Канал выборов и публичных анонсов')
+      .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+  )
+  .addChannelOption((option) =>
+    option
+      .setName('log')
+      .setNameLocalization('ru', 'журнал')
+      .setDescription('Channel for political event logs')
+      .setDescriptionLocalization('ru', 'Канал журнала политических событий')
+      .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+  );
 
 export const commands = [
   setVoteCommand.toJSON(),
   setMultiVoteCommand.toJSON(),
   restoreVotesCommand.toJSON(),
+  helpCommand.toJSON(),
+  profileCommand.toJSON(),
   partiesCommand.toJSON(),
   electionCommand.toJSON(),
   royalCommand.toJSON()

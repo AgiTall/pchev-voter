@@ -4,6 +4,7 @@ import { DEFAULT_PARTY_EMOJI, normalizePartyEmoji } from './party-emoji.js';
 import {
   buildElectionFinishedEmbed,
   buildElectionStartedEmbed,
+  buildPublicPartiesMessage,
   findUserParty,
   getElectionOutcome
 } from './politics-ui.js';
@@ -11,6 +12,7 @@ import {
 const MAX_TIMER_DELAY = 2_147_000_000;
 const PRESIDENT_ROLE_NAME = 'Президент';
 const ASSISTANT_ROLE_NAME = 'Помощник президента';
+const PUBLIC_REFRESH_COOLDOWN_MS = 30_000;
 
 export class PoliticsError extends Error {
   constructor(message) {
@@ -27,6 +29,85 @@ export class PoliticsService {
     this.store = store;
     this.locks = new Map();
     this.timers = new Map();
+    this.publicRefreshes = new Map();
+  }
+
+  claimPublicRefresh(guildId, userId) {
+    const key = `${guildId}:${userId}`;
+    const previous = this.publicRefreshes.get(key) ?? 0;
+    const remaining = PUBLIC_REFRESH_COOLDOWN_MS - (Date.now() - previous);
+    if (remaining > 0) {
+      throw new PoliticsError(`Подождите ${Math.ceil(remaining / 1000)} сек. перед повторной публикацией.`);
+    }
+    this.publicRefreshes.set(key, Date.now());
+    if (this.publicRefreshes.size > 5_000) {
+      this.publicRefreshes.delete(this.publicRefreshes.keys().next().value);
+    }
+  }
+
+  async publishPartySummary(guild, channelId, userId) {
+    this.claimPublicRefresh(guild.id, userId);
+    const state = this.store.get(guild.id);
+    const channel = await guild.channels.fetch(channelId).catch(() => null);
+    if (!channel?.isTextBased()) throw new PoliticsError('Выбранный канал недоступен боту.');
+
+    let message = null;
+    if (state.publicSummary.channelId === channelId && state.publicSummary.messageId) {
+      message = await channel.messages?.fetch(state.publicSummary.messageId).catch(() => null);
+      if (message) await message.edit(buildPublicPartiesMessage(state));
+    }
+    if (!message) message = await channel.send(buildPublicPartiesMessage(state));
+
+    state.publicSummary = { channelId, messageId: message.id };
+    await this.store.save();
+    await this.sendLog(guild, `<@${userId}> опубликовал сводку партий в <#${channelId}>.`);
+    return message;
+  }
+
+  async refreshPublishedSummary(guild) {
+    const state = this.store.get(guild.id);
+    const { channelId, messageId } = state.publicSummary;
+    if (!channelId || !messageId) return false;
+    try {
+      const channel = await guild.channels.fetch(channelId);
+      if (!channel?.isTextBased()) return false;
+      const message = await channel.messages.fetch(messageId);
+      await message.edit(buildPublicPartiesMessage(state));
+      return true;
+    } catch (error) {
+      console.error(`Не удалось обновить публичную сводку сервера ${guild.id}:`, error);
+      return false;
+    }
+  }
+
+  async sendLog(guild, content) {
+    const channelId = this.store.get(guild.id).settings.logChannelId;
+    if (!channelId) return false;
+    try {
+      const channel = await guild.channels.fetch(channelId);
+      if (!channel?.isTextBased()) return false;
+      await channel.send({ content: `📜 ${content}`, allowedMentions: { parse: [] } });
+      return true;
+    } catch (error) {
+      console.error(`Не удалось отправить запись журнала в канал ${channelId}:`, error);
+      return false;
+    }
+  }
+
+  async afterStateChange(guild, logMessage) {
+    await Promise.all([
+      this.refreshPublishedSummary(guild),
+      logMessage ? this.sendLog(guild, logMessage) : Promise.resolve(false)
+    ]);
+  }
+
+  async afterStateChangeById(guildId, logMessage) {
+    try {
+      const guild = await this.client.guilds.fetch(guildId);
+      await this.afterStateChange(guild, logMessage);
+    } catch (error) {
+      console.error(`Не удалось опубликовать изменение политической системы ${guildId}:`, error);
+    }
   }
 
   async runExclusive(guildId, task) {
@@ -53,7 +134,7 @@ export class PoliticsService {
     descriptionInput,
     emojiInput = DEFAULT_PARTY_EMOJI
   ) {
-    return this.runExclusive(guildId, async () => {
+    const result = await this.runExclusive(guildId, async () => {
       const state = this.store.get(guildId);
       const name = cleanText(nameInput);
       const description = String(descriptionInput ?? '').trim();
@@ -95,10 +176,15 @@ export class PoliticsService {
       await this.store.save();
       return { party, configuredCost: state.settings.partyCreationCost };
     });
+    await this.afterStateChangeById(
+      guildId,
+      `<@${userId}> создал партию ${result.party.emoji} **${result.party.name}**.`
+    );
+    return result;
   }
 
   async updatePartyEmoji(guildId, userId, emojiInput) {
-    return this.runExclusive(guildId, async () => {
+    const party = await this.runExclusive(guildId, async () => {
       const state = this.store.get(guildId);
       const party = findUserParty(state, userId);
       if (!party) throw new PoliticsError('Вы не состоите ни в одной партии.');
@@ -114,10 +200,12 @@ export class PoliticsService {
       await this.store.save();
       return party;
     });
+    await this.afterStateChangeById(guildId, `<@${userId}> обновил логотип партии **${party.name}**.`);
+    return party;
   }
 
   async joinParty(guildId, userId, partyId) {
-    return this.runExclusive(guildId, async () => {
+    const party = await this.runExclusive(guildId, async () => {
       const state = this.store.get(guildId);
       if (state.election.status === 'active') {
         throw new PoliticsError('Во время выборов состав партий заморожен.');
@@ -132,10 +220,12 @@ export class PoliticsService {
       await this.store.save();
       return party;
     });
+    await this.afterStateChangeById(guildId, `<@${userId}> вступил в партию **${party.name}**.`);
+    return party;
   }
 
   async leaveParty(guild, userId) {
-    return this.runExclusive(guild.id, async () => {
+    const result = await this.runExclusive(guild.id, async () => {
       const state = this.store.get(guild.id);
       if (state.election.status === 'active') {
         throw new PoliticsError('Во время выборов состав партий заморожен.');
@@ -170,15 +260,19 @@ export class PoliticsService {
       }
       return { party, deleted, newLeaderId, warnings };
     });
+    await this.afterStateChange(guild, `<@${userId}> вышел из партии **${result.party.name}**.`);
+    return result;
   }
 
   async updateSettings(guildId, settings) {
-    return this.runExclusive(guildId, async () => {
+    const updated = await this.runExclusive(guildId, async () => {
       const state = this.store.get(guildId);
       state.settings = { ...state.settings, ...settings };
       await this.store.save();
       return state.settings;
     });
+    await this.afterStateChangeById(guildId, 'Администратор обновил настройки политической системы.');
+    return updated;
   }
 
   async startElection(guild, channelId) {
@@ -192,12 +286,13 @@ export class PoliticsService {
       }
 
       const startedAt = Date.now();
+      const announcementChannelId = current.settings.announcementChannelId ?? channelId;
       current.election = {
         status: 'active',
         ballots: {},
         startedAt,
         endsAt: startedAt + current.settings.electionDurationMs,
-        channelId,
+        channelId: announcementChannelId,
         completedAt: null,
         winnerPartyId: null
       };
@@ -208,9 +303,10 @@ export class PoliticsService {
     this.scheduleElection(guild.id);
     const announcementSent = await this.sendAnnouncement(
       guild,
-      channelId,
+      state.election.channelId,
       buildElectionStartedEmbed(state)
     );
+    await this.afterStateChange(guild, `Выборы запущены в <#${state.election.channelId}>.`);
     return { state, announcementSent };
   }
 
@@ -275,18 +371,24 @@ export class PoliticsService {
     this.clearElectionTimer(guild.id);
     let announcementSent = false;
     if (announce) {
+      const announcementChannelId =
+        result.state.settings.announcementChannelId ?? result.state.election.channelId;
       announcementSent = await this.sendAnnouncement(
         guild,
-        result.state.election.channelId,
+        announcementChannelId,
         buildElectionFinishedEmbed(result.state, result.outcome),
         result.warnings
       );
     }
+    const outcomeText = result.outcome.winner
+      ? `Победила партия **${result.outcome.winner.name}**.`
+      : result.outcome.type === 'tie' ? 'Зафиксирована ничья.' : 'Голосов не было.';
+    await this.afterStateChange(guild, `Выборы завершены. ${outcomeText}`);
     return { ...result, announcementSent };
   }
 
   async impeach(guild) {
-    return this.runExclusive(guild.id, async () => {
+    const result = await this.runExclusive(guild.id, async () => {
       const state = this.store.get(guild.id);
       if (!state.office.presidentId && state.office.assistants.length === 0) {
         throw new PoliticsError('Текущий созыв уже пуст.');
@@ -296,10 +398,12 @@ export class PoliticsService {
       const warnings = await this.clearManagedRoles(guild, state);
       return { state, warnings };
     });
+    await this.afterStateChange(guild, 'Созыв распущен: Президент и помощники сняты с должностей.');
+    return result;
   }
 
   async assignAssistant(guild, presidentId, memberId) {
-    return this.runExclusive(guild.id, async () => {
+    const state = await this.runExclusive(guild.id, async () => {
       const state = this.store.get(guild.id);
       this.assertPresident(state, presidentId);
       const party = state.parties.find((candidate) => candidate.id === state.office.partyId);
@@ -324,10 +428,12 @@ export class PoliticsService {
       await this.store.save();
       return state;
     });
+    await this.afterStateChange(guild, `<@${memberId}> назначен помощником Президента.`);
+    return state;
   }
 
   async removeAssistant(guild, presidentId, memberId) {
-    return this.runExclusive(guild.id, async () => {
+    const result = await this.runExclusive(guild.id, async () => {
       const state = this.store.get(guild.id);
       this.assertPresident(state, presidentId);
       if (!state.office.assistants.includes(memberId)) {
@@ -339,6 +445,8 @@ export class PoliticsService {
       const warning = await this.removeRoleFromMember(guild, state.roleIds.assistant, memberId);
       return { state, warning };
     });
+    await this.afterStateChange(guild, `<@${memberId}> снят с должности помощника Президента.`);
+    return result;
   }
 
   assertPresident(state, userId) {
@@ -473,6 +581,21 @@ export class PoliticsService {
       return true;
     } catch (error) {
       console.error(`Не удалось отправить политический анонс в канал ${channelId}:`, error);
+      return false;
+    }
+  }
+
+  async sendPublicNotice(guild, fallbackChannelId, content) {
+    const state = this.store.get(guild.id);
+    const channelId = state.settings.announcementChannelId ?? fallbackChannelId;
+    if (!channelId) return false;
+    try {
+      const channel = await guild.channels.fetch(channelId);
+      if (!channel?.isTextBased()) return false;
+      await channel.send({ content, allowedMentions: { parse: [] } });
+      return true;
+    } catch (error) {
+      console.error(`Не удалось отправить публичное сообщение в канал ${channelId}:`, error);
       return false;
     }
   }

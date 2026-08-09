@@ -21,6 +21,8 @@ export const POLITICS_IDS = Object.freeze({
   PARTY_LEAVE: 'politics:party:leave',
   PARTY_CABINET: 'politics:party:cabinet',
   PARTY_EMOJI: 'politics:party:emoji',
+  PARTY_PUBLISH: 'politics:party:publish',
+  PARTY_REFRESH: 'politics:party:refresh',
   PARTY_BACK: 'politics:party:back',
   PARTY_CREATE_MODAL: 'politics:modal:create-party',
   PARTY_EMOJI_MODAL: 'politics:modal:party-emoji',
@@ -29,7 +31,10 @@ export const POLITICS_IDS = Object.freeze({
   ELECTION_RESULTS: 'politics:election:results',
   ROYAL_START: 'politics:royal:start',
   ROYAL_FINISH: 'politics:royal:finish',
+  ROYAL_FINISH_CONFIRM: 'politics:royal:finish-confirm',
   ROYAL_IMPEACH: 'politics:royal:impeach',
+  ROYAL_IMPEACH_CONFIRM: 'politics:royal:impeach-confirm',
+  ROYAL_CANCEL: 'politics:royal:cancel',
   ROYAL_SETTINGS: 'politics:royal:settings',
   ROYAL_SETTINGS_MODAL: 'politics:modal:settings',
   CABINET_MEMBER: 'politics:cabinet:member',
@@ -141,39 +146,65 @@ export function buildPartiesMessage(state, userId, { selectedPartyId, notice } =
   }
 
   const electionActive = state.election.status === 'active';
-  components.push(
-    new ActionRowBuilder().addComponents(
+  const actions = [];
+
+  if (!electionActive && !membership && state.parties.length < 25) {
+    actions.push(
       new ButtonBuilder()
         .setCustomId(POLITICS_IDS.PARTY_CREATE)
-        .setLabel('Создать партию')
+        .setLabel('Создать')
         .setEmoji('➕')
         .setStyle(ButtonStyle.Success)
-        .setDisabled(Boolean(membership) || state.parties.length >= 25 || electionActive),
-      new ButtonBuilder()
-        .setCustomId(POLITICS_IDS.PARTY_JOIN)
-        .setLabel('Вступить')
-        .setEmoji('🤝')
-        .setStyle(ButtonStyle.Primary)
-        .setDisabled(Boolean(membership) || !selected || electionActive),
+    );
+    if (selected) {
+      actions.push(
+        new ButtonBuilder()
+          .setCustomId(POLITICS_IDS.PARTY_JOIN)
+          .setLabel('Вступить')
+          .setEmoji('🤝')
+          .setStyle(ButtonStyle.Primary)
+      );
+    }
+  }
+
+  if (!electionActive && membership) {
+    actions.push(
       new ButtonBuilder()
         .setCustomId(POLITICS_IDS.PARTY_LEAVE)
         .setLabel('Выйти')
         .setEmoji('🚪')
         .setStyle(ButtonStyle.Danger)
-        .setDisabled(!membership || electionActive),
+    );
+  }
+
+  if (membership?.leaderId === userId) {
+    actions.push(
+      new ButtonBuilder()
+        .setCustomId(POLITICS_IDS.PARTY_EMOJI)
+        .setLabel('Сменить лого')
+        .setEmoji('🎨')
+        .setStyle(ButtonStyle.Secondary)
+    );
+  }
+
+  if (state.office.presidentId === userId) {
+    actions.push(
       new ButtonBuilder()
         .setCustomId(POLITICS_IDS.PARTY_CABINET)
         .setLabel('Кабинет')
         .setEmoji('👑')
-        .setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder()
-        .setCustomId(POLITICS_IDS.PARTY_EMOJI)
-        .setLabel('Лого')
-        .setEmoji('🎨')
         .setStyle(ButtonStyle.Secondary)
-        .setDisabled(!membership || membership.leaderId !== userId)
-    )
+    );
+  }
+
+  actions.push(
+    new ButtonBuilder()
+      .setCustomId(POLITICS_IDS.PARTY_PUBLISH)
+      .setLabel('Показать в канале')
+      .setEmoji('📢')
+      .setStyle(ButtonStyle.Secondary)
   );
+  components.push(new ActionRowBuilder().addComponents(...actions));
 
   return {
     content: notice ?? null,
@@ -181,6 +212,83 @@ export function buildPartiesMessage(state, userId, { selectedPartyId, notice } =
     components,
     allowedMentions: { parse: [] }
   };
+}
+
+export function buildPublicPartiesMessage(state, { refreshedAt = Date.now() } = {}) {
+  const memberCount = new Set(state.parties.flatMap((party) => party.members)).size;
+  const partyList = state.parties.length
+    ? state.parties
+      .map((party, index) =>
+        `${index + 1}. ${partyEmoji(party)} **${truncate(party.name, 70)}** — ` +
+        `${party.members.length} участн. · лидер <@${party.leaderId}>`
+      )
+      .join('\n')
+    : 'Пока не создано ни одной партии.';
+
+  const embed = new EmbedBuilder()
+    .setColor(POLITICS_COLOR)
+    .setTitle('🏛️ Партии сервера')
+    .setDescription(
+      `${electionStatusText(state)}\n\n` +
+      `**Партий:** ${state.parties.length} · **Участников:** ${memberCount}\n\n` +
+      truncate(partyList, 3_500)
+    )
+    .setFooter({ text: 'Личное меню: /parties' })
+    .setTimestamp(refreshedAt);
+
+  const components = [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(POLITICS_IDS.PARTY_REFRESH)
+        .setLabel('Обновить')
+        .setEmoji('🔄')
+        .setStyle(ButtonStyle.Secondary)
+    )
+  ];
+
+  return {
+    embeds: [embed],
+    components,
+    allowedMentions: { parse: [] }
+  };
+}
+
+export function buildHelpMessage() {
+  const embed = new EmbedBuilder()
+    .setColor(POLITICS_COLOR)
+    .setTitle('ℹ️ Краткая справка')
+    .setDescription(
+      '**/parties** — партии, вступление и публичная сводка\n' +
+      '**/profile** — ваша партия и должность\n' +
+      '**/election** — проголосовать на активных выборах\n' +
+      '**/set-vote** — создать голосование «за / против»\n' +
+      '**/set-multi-vote** — создать голосование с вариантами\n' +
+      '**/royal** — управление политической системой для администраторов'
+    )
+    .setFooter({ text: 'Основные действия бот показывает кнопками' });
+  return { embeds: [embed], allowedMentions: { parse: [] } };
+}
+
+export function buildProfileMessage(state, userId) {
+  const party = findUserParty(state, userId);
+  let position = 'нет';
+  if (state.office.presidentId === userId) position = 'Президент';
+  else if (state.office.assistants.includes(userId)) position = 'Помощник президента';
+  else if (party?.leaderId === userId) position = 'Лидер партии';
+
+  const election = state.election.status === 'active'
+    ? (state.election.ballots?.[userId] ? 'голос учтён' : 'ещё не голосовал')
+    : 'сейчас не проводятся';
+  const embed = new EmbedBuilder()
+    .setColor(POLITICS_COLOR)
+    .setTitle('👤 Политический профиль')
+    .setDescription(
+      `**Участник:** <@${userId}>\n` +
+      `**Партия:** ${party ? `${partyEmoji(party)} ${party.name}` : 'нет'}\n` +
+      `**Должность:** ${position}\n` +
+      `**Выборы:** ${election}`
+    );
+  return { embeds: [embed], allowedMentions: { parse: [] } };
 }
 
 export function buildCreatePartyModal() {
@@ -320,6 +428,11 @@ export function buildRoyalMessage(state, { notice } = {}) {
         `Длительность выборов: **${formatDuration(state.settings.electionDurationMs)}**\n` +
         `Лимит помощников: **${state.settings.moderatorLimit}**\n` +
         `Стоимость создания партии: **${state.settings.partyCreationCost}**`
+    }, {
+      name: '📣 Каналы',
+      value:
+        `Анонсы: ${state.settings.announcementChannelId ? `<#${state.settings.announcementChannelId}>` : 'текущий канал'}\n` +
+        `Журнал: ${state.settings.logChannelId ? `<#${state.settings.logChannelId}>` : 'не настроен'}`
     });
 
   const active = state.election.status === 'active';
@@ -352,6 +465,34 @@ export function buildRoyalMessage(state, { notice } = {}) {
   ];
 
   return { content: notice ?? null, embeds: [embed], components, allowedMentions: { parse: [] } };
+}
+
+export function buildRoyalConfirmation(state, action) {
+  const isImpeachment = action === 'impeach';
+  const embed = new EmbedBuilder()
+    .setColor(isImpeachment ? 0xc0392b : 0xe67e22)
+    .setTitle(isImpeachment ? '❌ Подтвердить импичмент?' : '🔴 Завершить выборы досрочно?')
+    .setDescription(
+      isImpeachment
+        ? 'Президент и все помощники будут сняты с должностей. Это действие нельзя отменить.'
+        : 'Голосование остановится сейчас, после чего бот подсчитает текущие голоса.'
+    );
+  const confirmId = isImpeachment
+    ? POLITICS_IDS.ROYAL_IMPEACH_CONFIRM
+    : POLITICS_IDS.ROYAL_FINISH_CONFIRM;
+  const components = [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(confirmId)
+        .setLabel('Да, подтвердить')
+        .setStyle(ButtonStyle.Danger),
+      new ButtonBuilder()
+        .setCustomId(POLITICS_IDS.ROYAL_CANCEL)
+        .setLabel('Отмена')
+        .setStyle(ButtonStyle.Secondary)
+    )
+  ];
+  return { embeds: [embed], components, allowedMentions: { parse: [] } };
 }
 
 export function buildSettingsModal(settings) {
